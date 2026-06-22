@@ -324,7 +324,6 @@ onUnmounted(() => { clearInterval(pollingInterval); });
   text-transform: uppercase;
 }
 
-.glitch { text-shadow: 2px 0 var(--highlight), -2px 0 var(--accent-blue); }
 
 .frequency-input { display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); }
 .frequency-input label { font-size: 0.75rem; font-weight: bold;}

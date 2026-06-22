@@ -22,53 +22,34 @@ def print_banner():
     print("    ==============================================================\n")
 
 def check_command(command):
-    """Verifica si un comando está disponible en el PATH del sistema."""
     return shutil.which(command) is not None
 
 def install_ipfs_linux():
-    """Descarga e instala Kubo (IPFS) en distribuciones Linux."""
     print("\n[!] IPFS no detectado. Iniciando protocolo de instalación automática para Linux...")
     try:
-        print(" [*] Descargando binarios de IPFS (Kubo)...")
         subprocess.run(["wget", "https://dist.ipfs.tech/kubo/v0.28.0/kubo_v0.28.0_linux-amd64.tar.gz"], check=True)
-        
-        print(" [*] Extrayendo paquete...")
         subprocess.run(["tar", "-xvzf", "kubo_v0.28.0_linux-amd64.tar.gz"], check=True)
-        
-        print(" [*] Moviendo ejecutable al sistema (Requiere contraseña sudo)...")
         subprocess.run(["sudo", "bash", "kubo/install.sh"], check=True)
-        
-        print(" [*] Limpiando archivos temporales...")
         subprocess.run(["rm", "-rf", "kubo", "kubo_v0.28.0_linux-amd64.tar.gz"])
-        
         print("[+] IPFS instalado con éxito en el sistema.")
         return True
     except Exception as e:
         print(f"[-] Fallo crítico en la instalación de IPFS: {e}")
-        print("[-] Deberás instalarlo manualmente: https://docs.ipfs.tech/install/command-line/")
         sys.exit(1)
 
 def install_npm_linux():
-    """Instala Node.js y npm usando el gestor de paquetes de Linux."""
     print("\n[!] NPM no detectado. Iniciando instalación de Node.js/npm...")
     try:
-        # Detectar el gestor de paquetes (apt, pacman, dnf)
         if check_command("apt-get"):
-            print(" [*] Sistema basado en Debian/Ubuntu detectado. Actualizando repositorios...")
             subprocess.run(["sudo", "apt-get", "update"], check=True)
-            print(" [*] Instalando npm...")
             subprocess.run(["sudo", "apt-get", "install", "-y", "npm"], check=True)
         elif check_command("pacman"):
-            print(" [*] Sistema basado en Arch detectado. Instalando npm...")
             subprocess.run(["sudo", "pacman", "-S", "--noconfirm", "npm"], check=True)
         elif check_command("dnf"):
-            print(" [*] Sistema basado en Fedora/RHEL detectado. Instalando npm...")
             subprocess.run(["sudo", "dnf", "install", "-y", "npm"], check=True)
         else:
             print("[-] Gestor de paquetes no soportado para instalación automática.")
-            print("[-] Por favor instala Node.js/npm manualmente.")
             sys.exit(1)
-            
         print("[+] NPM instalado con éxito.")
         return True
     except Exception as e:
@@ -83,44 +64,65 @@ def init_ipfs_node_only():
             install_ipfs_linux()
         else:
             print("[-] ERROR: Kubo IPFS no está instalado o no está en el PATH.")
-            print("[-] En Windows o macOS debes instalarlo manualmente.")
             sys.exit(1)
     
-    # Inicializa el repo si no existe
     subprocess.run(["ipfs", "init"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    # Habilitar PubSub
-    print("[+] Habilitando protocolo PubSub...")
-    subprocess.run(["ipfs", "config", "--json", "Pubsub.Enabled", "true"])
+    # === INYECCIÓN DEL NODO FARO (BOOTSTRAP & RELAY) ===
+    print("[+] Limpiando enrutamiento corporativo y configurando Nodo Faro de la Red Omega...")
     
+    # 1. Purgar nodos públicos de Protocol Labs
+    subprocess.run(["ipfs", "bootstrap", "rm", "--all"], stdout=subprocess.DEVNULL)
+    
+    # 2. Inyectar tu Faro de Google Cloud (TCP)
+    faro_address = "/ip4/34.31.146.218/tcp/4001/p2p/12D3KooWHdxx9nAoseYop65QYZbFDVrHztKK5otMNVtc4LkMmr55"
+    subprocess.run(["ipfs", "bootstrap", "add", faro_address], stdout=subprocess.DEVNULL)
+
+    # 3. Forzar el uso del Faro como Relay (para atravesar Firewalls)
+    relay_address = "/ip4/34.31.146.218/tcp/4001/p2p/12D3KooWHdxx9nAoseYop65QYZbFDVrHztKK5otMNVtc4LkMmr55/p2p-circuit"
+    subprocess.run(["ipfs", "swarm", "peering", "add", relay_address], stdout=subprocess.DEVNULL)
+    # === FIN DE INYECCIÓN DEL FARO ===
+
+    print("[+] Configurando Perforación de NAT y PubSub...")
+    subprocess.run(["ipfs", "config", "--json", "Pubsub.Enabled", "true"], stdout=subprocess.DEVNULL)
+    subprocess.run(["ipfs", "config", "--json", "Swarm.EnableHolePunching", "true"], stdout=subprocess.DEVNULL)
+    subprocess.run(["ipfs", "config", "--json", "Swarm.RelayClient.Enabled", "true"], stdout=subprocess.DEVNULL)
+    subprocess.run(["ipfs", "config", "Routing.Type", "dht"], stdout=subprocess.DEVNULL)
+    
+    # === REPARACIÓN DE CORS PARA EL GATEWAY LOCAL ===
+    print("[+] Inyectando permisos de acceso cruzado (CORS)...")
+    subprocess.run(["ipfs", "config", "--json", "API.HTTPHeaders.Access-Control-Allow-Origin", "[\"*\"]"], stdout=subprocess.DEVNULL)
+    subprocess.run(["ipfs", "config", "--json", "API.HTTPHeaders.Access-Control-Allow-Methods", "[\"PUT\", \"GET\", \"POST\", \"OPTIONS\"]"], stdout=subprocess.DEVNULL)
+    
+    subprocess.run(["ipfs", "config", "--json", "Gateway.HTTPHeaders.Access-Control-Allow-Origin", "[\"*\"]"], stdout=subprocess.DEVNULL)
+    subprocess.run(["ipfs", "config", "--json", "Gateway.HTTPHeaders.Access-Control-Allow-Methods", "[\"PUT\", \"GET\", \"POST\", \"OPTIONS\"]"], stdout=subprocess.DEVNULL)
+    subprocess.run(["ipfs", "config", "--json", "Gateway.HTTPHeaders.Access-Control-Allow-Headers", "[\"Authorization\", \"Content-Type\"]"], stdout=subprocess.DEVNULL)
+    # === FIN DE REPARACIÓN DE CORS ===
+
     print("[+] Levantando demonio IPFS...")
-    if os.name == 'nt':  # Windows
-        subprocess.Popen(["start", "cmd", "/k", "ipfs daemon --enable-pubsub-experiment"], shell=True)
-    else:  # Mac/Linux
+    if os.name == 'nt':
+        subprocess.Popen(["start", "cmd", "/k", "ipfs daemon"], shell=True)
+    else:
         try:
-            subprocess.Popen(["x-terminal-emulator", "-e", "ipfs daemon --enable-pubsub-experiment"])
+            subprocess.Popen(["x-terminal-emulator", "-e", "ipfs daemon"])
         except FileNotFoundError:
-            subprocess.Popen("ipfs daemon --enable-pubsub-experiment > /dev/null 2>&1 &", shell=True)
+            subprocess.Popen("ipfs daemon > /dev/null 2>&1 &", shell=True)
     
-    print("[+] Nodo IPFS operativo en segundo plano. Escuchando el enjambre.")
+    print("[+] Nodo IPFS anclado al Faro. Escuchando a la Red Omega.")
 
 def install_admin_panel():
     print("\n[+] INICIANDO BÚNKER DE MANDO (NODO + FLASK + WEB)...")
     
-    # 0. Verificar e instalar dependencias (npm) en Linux
     if not check_command("npm"):
         if platform.system() == "Linux":
             install_npm_linux()
         else:
             print("[-] ERROR: npm no está instalado en el sistema.")
-            print("[-] Debes instalar Node.js manualmente para continuar.")
             sys.exit(1)
 
-    # 1. Levantar el nodo IPFS
     init_ipfs_node_only()
     time.sleep(3) 
     
-    # 2. Levantar el Backend (Flask)
     print("[+] Iniciando Motor Flask Local...")
     backend_path = os.path.join(os.getcwd(), "backend", "app.py")
     if not os.path.exists(backend_path):
@@ -134,7 +136,6 @@ def install_admin_panel():
         except FileNotFoundError:
             subprocess.Popen(f"python3 {backend_path} &", shell=True)
 
-    # 3. Preparar e iniciar el Frontend (Vite)
     print("[+] Levantando servidor web local...")
     frontend_path = os.path.join(os.getcwd(), "red-omega-front")
     if not os.path.exists(frontend_path):
@@ -142,25 +143,19 @@ def install_admin_panel():
     
     try:
         if os.name == 'nt':
-            # Verificamos si node_modules existe, si no, corremos npm install primero
             if not os.path.exists(os.path.join(frontend_path, "node_modules")):
-                print(" [*] Instalando dependencias de Vue (esto tomará un momento)...")
                 subprocess.run(["cmd", "/c", f"cd {frontend_path} && npm install"], check=True)
             subprocess.Popen(["start", "cmd", "/c", f"cd {frontend_path} && npm run dev"], shell=True)
         else:
             if not os.path.exists(os.path.join(frontend_path, "node_modules")):
-                print(" [*] Instalando dependencias de Vue (esto tomará un momento)...")
                 subprocess.run(["bash", "-c", f"cd {frontend_path} && npm install"], check=True)
             try:
                 subprocess.Popen(["x-terminal-emulator", "-e", f"bash -c 'cd {frontend_path} && npm run dev'"])
             except FileNotFoundError:
                 subprocess.Popen(f"cd {frontend_path} && npm run dev &", shell=True)
         
-        # Esperar a que Vite compile y abrir el navegador nativo
-        print("[+] Abriendo interfaz en el navegador...")
         time.sleep(4)
         webbrowser.open("http://localhost:5173")
-        
         print("[+] Búnker completamente operativo.")
     except Exception as e:
         print(f"[-] Error al iniciar el frontend: {e}")
@@ -174,18 +169,10 @@ def main():
     print("    ==============================================================")
     
     opcion = input("\n  > Selecciona un protocolo [1-3]: ")
-    
-    if opcion == '1':
-        init_ipfs_node_only()
-    elif opcion == '2':
-        install_admin_panel()
-    elif opcion == '3':
-        print("[+] Abortando secuencia.")
-        sys.exit(0)
-    else:
-        print("[-] Opción no válida.")
-        time.sleep(1)
-        main()
+    if opcion == '1': init_ipfs_node_only()
+    elif opcion == '2': install_admin_panel()
+    elif opcion == '3': sys.exit(0)
+    else: main()
 
 if __name__ == "__main__":
     main()
